@@ -1,0 +1,11 @@
+# Все команды этапов 1-3 (работает на любой VFS)
+ls
+ls -l /tmp
+cd $HOME
+cd ${HOME}/docs
+unknown_cmd 1 2
+exit extra
+echo "незакрытая кавычка
+vfs-tree
+vfs-tree лишний_аргумент
+exit

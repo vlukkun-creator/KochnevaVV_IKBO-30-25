@@ -1,0 +1,10 @@
+# VFS с тремя уровнями (vfs_deep)
+vfs-tree
+cd level1
+ls
+cd level2
+ls
+cd level3
+ls
+tail deep.txt
+exit
