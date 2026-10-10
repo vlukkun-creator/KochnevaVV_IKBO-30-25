@@ -6,11 +6,12 @@ import xml.etree.ElementTree as ET
 
 from emulator import Emulator, ShellError, XmlLog, expand_vars, parse_line
 from emulator import read_script
+from emulator import default_vfs, load_vfs
 
 
 def make(log=None):
-    """Создаёт эмулятор для теста."""
-    return Emulator(log)
+    """Создаёт эмулятор с VFS по умолчанию."""
+    return Emulator(default_vfs(), log)
 
 
 def run(emu, line):
@@ -101,6 +102,39 @@ class LogTest(unittest.TestCase):
         """Нет скрипта - ошибка."""
         with self.assertRaises(ShellError):
             read_script("no_such_script.emu")
+
+
+class VfsTest(unittest.TestCase):
+    """Загрузка VFS."""
+
+    def test_default(self):
+        """VFS по умолчанию создаётся в памяти."""
+        self.assertIn("home", default_vfs())
+
+    def test_load_from_directory(self):
+        """Директория с диска загружается в память."""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "a"))
+            path = os.path.join(root, "a", "f.txt")
+            with open(path, "w", encoding="utf-8") as file:
+                file.write("hello")
+            tree = load_vfs(root)
+        self.assertEqual(tree["a"]["f.txt"], "hello")
+
+    def test_missing_path(self):
+        """Нет директории - ошибка."""
+        with self.assertRaises(ShellError):
+            load_vfs("no_such_directory")
+
+    def test_file_instead_of_directory(self):
+        """Файл вместо директории - неверный формат."""
+        with tempfile.NamedTemporaryFile() as file:
+            with self.assertRaises(ShellError):
+                load_vfs(file.name)
+
+    def test_vfs_tree(self):
+        """vfs-tree начинает вывод с корня."""
+        self.assertTrue(run(make(), "vfs-tree").startswith("/"))
 
 
 if __name__ == "__main__":

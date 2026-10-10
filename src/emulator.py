@@ -38,6 +38,62 @@ def parse_line(line):
     return [expand_vars(word) for word in words]
 
 
+def default_vfs():
+    """Создаёт VFS по умолчанию в памяти."""
+    syslog = "".join(f"строка журнала {i}\n" for i in range(1, 16))
+    return {
+        "home": {
+            "user": {
+                "notes.txt": "Первая заметка\nВторая заметка\n",
+                "projects": {"demo": {}},
+            }
+        },
+        "etc": {"motd": "Добро пожаловать!\n"},
+        "var": {"log": {"syslog": syslog}},
+        "tmp": {},
+    }
+
+
+def read_dir(path):
+    """Читает директорию с диска в словарь (всё хранится в памяти)."""
+    tree = {}
+    for name in sorted(os.listdir(path)):
+        full = os.path.join(path, name)
+        if os.path.isdir(full):
+            tree[name] = read_dir(full)
+        else:
+            with open(full, encoding="utf-8", errors="replace") as file:
+                tree[name] = file.read()
+    return tree
+
+
+def load_vfs(path):
+    """Загружает VFS из директории или создаёт VFS по умолчанию."""
+    if path is None:
+        return default_vfs()
+    if not os.path.exists(path):
+        raise ShellError(f"{path}: путь не найден")
+    if not os.path.isdir(path):
+        raise ShellError(f"{path}: неверный формат, нужна директория")
+    try:
+        return read_dir(path)
+    except OSError as error:
+        raise ShellError(f"{path}: {error.strerror}") from error
+
+
+def tree_lines(tree, depth=0):
+    """Строки с деревом каталогов и файлов для команды vfs-tree."""
+    lines = []
+    for name in sorted(tree):
+        item = tree[name]
+        if isinstance(item, dict):
+            lines.append("  " * depth + name + "/")
+            lines += tree_lines(item, depth + 1)
+        else:
+            lines.append("  " * depth + f"{name} ({len(item.encode())} B)")
+    return lines
+
+
 class XmlLog:
     """XML-журнал вызовов команд."""
 
@@ -91,16 +147,18 @@ def read_script(path):
 class Emulator:
     """Ядро эмулятора: текущий каталог, команды, журнал."""
 
-    def __init__(self, log=None):
+    def __init__(self, vfs, log=None):
         """Запоминает пользователя и хост из реальной ОС."""
         self.user = getpass.getuser()
         self.host = socket.gethostname()
         self.cwd = []
         self.running = True
+        self.vfs = vfs
         self.log = log
         self.commands = {
             "ls": self.cmd_ls,
             "cd": self.cmd_cd,
+            "vfs-tree": self.cmd_vfs_tree,
             "exit": self.cmd_exit,
         }
 
@@ -142,6 +200,12 @@ class Emulator:
     def cmd_cd(self, args):
         """Заглушка cd: печатает имя и аргументы."""
         return f"cd: аргументы = {args}"
+
+    def cmd_vfs_tree(self, args):
+        """vfs-tree - служебная команда: показывает дерево VFS."""
+        if args:
+            raise ShellError("vfs-tree: команда не принимает аргументов")
+        return "\n".join(["/"] + tree_lines(self.vfs))
 
     def cmd_exit(self, args):
         """exit - завершает работу эмулятора."""
@@ -263,12 +327,13 @@ def main():
     banner = describe(args)
     print(banner)
     try:
+        vfs = load_vfs(args.vfs)
         log = XmlLog(args.log) if args.log else None
         script = read_script(args.script) if args.script else []
     except ShellError as error:
         print(f"Ошибка запуска: {error}", file=sys.stderr)
         return 1
-    emu = Emulator(log)
+    emu = Emulator(vfs, log)
     if args.headless:
         run_console(emu, script)
     else:
