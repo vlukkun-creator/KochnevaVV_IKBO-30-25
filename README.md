@@ -51,6 +51,7 @@
 | `cd [путь]` | сменить каталог (`.`, `..`, абсолютные и относительные пути; без аргумента — `/`) |
 | `tail [-n N] файл` | последние N строк файла (по умолчанию 10) |
 | `who` | пользователь, вошедший в систему (реальный пользователь ОС) |
+| `rmdir каталог...` | удаляет пустые каталоги (только в памяти) |
 | `vfs-tree` | служебная команда: показывает дерево VFS |
 | `exit` | завершить работу |
 
@@ -73,6 +74,8 @@ test.bat                запуск тестов
 stage2.bat              проверка параметров командной строки
 stage3.bat              проверка разных VFS
 stage4.bat              проверка ls, cd, tail, who
+stage5.bat              проверка rmdir
+demo.bat                все сценарии подряд без окон
 ```
 
 Чтобы сценарии выполнялись без окон, перед запуском выполните `set EMU_FLAGS=--headless`
@@ -95,6 +98,8 @@ etc  home  tmp  var
 user@host:/$ cd home/user
 user@host:/home/user$ tail -n 1 notes.txt
 Вторая заметка
+user@host:/home/user$ rmdir projects
+rmdir: projects: каталог не пуст
 user@host:/home/user$ foo
 foo: команда не найдена
 user@host:/home/user$ exit

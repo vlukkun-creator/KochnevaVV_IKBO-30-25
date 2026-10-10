@@ -1,0 +1,20 @@
+# Этап 5: rmdir (стандартная VFS)
+vfs-tree
+
+# успешное удаление
+rmdir /tmp
+rmdir /home/user/projects/demo
+vfs-tree
+
+# ошибки
+rmdir /home
+rmdir /nope
+rmdir /etc/motd
+rmdir
+cd /var
+rmdir .
+rmdir /
+
+# каталог удалён
+cd /tmp
+exit
