@@ -186,5 +186,25 @@ class CommandsTest(unittest.TestCase):
         self.assertIn("лишние", run(make(), "who x"))
 
 
+class RmdirTest(unittest.TestCase):
+    """Команда rmdir."""
+
+    def test_remove(self):
+        """rmdir удаляет пустой каталог из памяти."""
+        emu = make()
+        self.assertEqual(run(emu, "rmdir /tmp"), "")
+        self.assertIn("нет такого", run(emu, "ls /tmp"))
+
+    def test_errors(self):
+        """rmdir не удаляет непустые, файлы, текущий каталог."""
+        emu = make()
+        self.assertIn("не пуст", run(emu, "rmdir /home"))
+        self.assertIn("не каталог", run(emu, "rmdir /etc/motd"))
+        self.assertIn("операнд", run(emu, "rmdir"))
+        self.assertIn("корень", run(emu, "rmdir /"))
+        emu.execute("cd /tmp")
+        self.assertIn("текущий", run(emu, "rmdir ."))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -166,6 +166,7 @@ class Emulator:
             "vfs-tree": self.cmd_vfs_tree,
             "tail": self.cmd_tail,
             "who": self.cmd_who,
+            "rmdir": self.cmd_rmdir,
             "exit": self.cmd_exit,
         }
 
@@ -276,6 +277,24 @@ class Emulator:
         if args:
             raise ShellError("who: лишние аргументы")
         return f"{self.user}  console  {self.started:%Y-%m-%d %H:%M}"
+
+    def cmd_rmdir(self, args):
+        """rmdir каталог... - удаляет пустые каталоги (в памяти)."""
+        if not args:
+            raise ShellError("rmdir: пропущен операнд")
+        for path in args:
+            parts, node = self.find("rmdir", path)
+            if not parts:
+                raise ShellError("rmdir: нельзя удалить корень")
+            if not isinstance(node, dict):
+                raise ShellError(f"rmdir: {path}: не каталог")
+            if parts == self.cwd:
+                raise ShellError(f"rmdir: {path}: это текущий каталог")
+            if node:
+                raise ShellError(f"rmdir: {path}: каталог не пуст")
+            _, parent = self.find("rmdir", "/" + "/".join(parts[:-1]))
+            del parent[parts[-1]]
+        return ""
 
     def cmd_vfs_tree(self, args):
         """vfs-tree - служебная команда: показывает дерево VFS."""
