@@ -68,11 +68,6 @@ class ShellTest(unittest.TestCase):
         """exit с аргументами - ошибка."""
         self.assertIn("аргументов", run(make(), "exit 1"))
 
-    def test_stubs(self):
-        """ls и cd - заглушки."""
-        self.assertEqual(run(make(), "ls -l"), "ls: аргументы = ['-l']")
-        self.assertEqual(run(make(), "cd /x"), "cd: аргументы = ['/x']")
-
 
 class LogTest(unittest.TestCase):
     """XML-журнал и стартовый скрипт."""
@@ -135,6 +130,60 @@ class VfsTest(unittest.TestCase):
     def test_vfs_tree(self):
         """vfs-tree начинает вывод с корня."""
         self.assertTrue(run(make(), "vfs-tree").startswith("/"))
+
+TAIL_DEFAULT = 10
+TAIL_THREE = 3
+
+
+class CommandsTest(unittest.TestCase):
+    """Команды ls, cd, tail, who."""
+
+    def test_ls(self):
+        """ls показывает каталоги корня."""
+        self.assertEqual(run(make(), "ls"), "etc  home  tmp  var")
+
+    def test_ls_long_and_file(self):
+        """ls -l показывает тип и размер, ls файл - имя файла."""
+        self.assertTrue(run(make(), "ls -l /home").startswith("d"))
+        self.assertEqual(run(make(), "ls /etc/motd"), "/etc/motd")
+
+    def test_ls_errors(self):
+        """ls сообщает об ошибках."""
+        self.assertIn("нет такого", run(make(), "ls /nope"))
+        self.assertIn("ключ", run(make(), "ls -z"))
+        self.assertIn("много", run(make(), "ls /etc /tmp"))
+
+    def test_cd(self):
+        """cd работает с относительными путями и .."""
+        emu = make()
+        emu.execute("cd home/user")
+        self.assertEqual(emu.cwd, ["home", "user"])
+        emu.execute("cd ../..")
+        self.assertEqual(emu.cwd, [])
+
+    def test_cd_errors(self):
+        """cd в файл и в несуществующий каталог - ошибка."""
+        self.assertIn("не каталог", run(make(), "cd /etc/motd"))
+        self.assertIn("нет такого", run(make(), "cd /nope"))
+
+    def test_tail(self):
+        """tail по умолчанию 10 строк, с -n 3 - три."""
+        lines = run(make(), "tail /var/log/syslog").splitlines()
+        self.assertEqual(len(lines), TAIL_DEFAULT)
+        lines = run(make(), "tail -n 3 /var/log/syslog").splitlines()
+        self.assertEqual(len(lines), TAIL_THREE)
+
+    def test_tail_errors(self):
+        """tail сообщает об ошибках."""
+        self.assertIn("неверное", run(make(), "tail -n x /etc/motd"))
+        self.assertIn("один файл", run(make(), "tail"))
+        self.assertIn("каталог", run(make(), "tail /etc"))
+        self.assertIn("нет такого", run(make(), "tail /nope"))
+
+    def test_who(self):
+        """who показывает пользователя; лишние аргументы - ошибка."""
+        self.assertIn("console", run(make(), "who"))
+        self.assertIn("лишние", run(make(), "who x"))
 
 
 if __name__ == "__main__":

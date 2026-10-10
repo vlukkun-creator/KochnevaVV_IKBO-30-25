@@ -14,6 +14,10 @@ from tkinter import scrolledtext
 ENV_PATTERN = re.compile(r"\$(\w+)|\$\{(\w+)\}")
 DELAY_MS = 400
 NOT_SET = "<не задан>"
+NOT_FOUND = "нет такого файла или каталога"
+TAIL_LINES = 10
+MIN_COUNT = 0
+MAX_PATHS = 1
 
 
 class ShellError(Exception):
@@ -155,10 +159,13 @@ class Emulator:
         self.running = True
         self.vfs = vfs
         self.log = log
+        self.started = datetime.now()
         self.commands = {
             "ls": self.cmd_ls,
             "cd": self.cmd_cd,
             "vfs-tree": self.cmd_vfs_tree,
+            "tail": self.cmd_tail,
+            "who": self.cmd_who,
             "exit": self.cmd_exit,
         }
 
@@ -193,13 +200,82 @@ class Emulator:
         if self.log:
             self.log.add(name, args, error)
 
+    def resolve(self, path):
+        """Превращает путь пользователя в список имён от корня."""
+        parts = [] if path.startswith("/") else list(self.cwd)
+        for part in path.split("/"):
+            if part == "..":
+                if parts:
+                    parts.pop()
+            elif part not in ("", "."):
+                parts.append(part)
+        return parts
+
+    def find(self, cmd, path):
+        """Ищет путь в VFS, возвращает (части пути, узел)."""
+        parts = self.resolve(path)
+        node = self.vfs
+        for part in parts:
+            if not isinstance(node, dict) or part not in node:
+                raise ShellError(f"{cmd}: {path}: {NOT_FOUND}")
+            node = node[part]
+        return parts, node
+
     def cmd_ls(self, args):
-        """Заглушка ls: печатает имя и аргументы."""
-        return f"ls: аргументы = {args}"
+        """ls [-l] [путь] - содержимое каталога."""
+        long_format = "-l" in args
+        paths = [arg for arg in args if arg != "-l"]
+        for path in paths:
+            if path.startswith("-"):
+                raise ShellError(f"ls: неверный ключ {path}")
+        if len(paths) > MAX_PATHS:
+            raise ShellError("ls: слишком много аргументов")
+        _, node = self.find("ls", paths[0] if paths else ".")
+        if not isinstance(node, dict):
+            return paths[0]
+        lines = []
+        for name in sorted(node):
+            if long_format:
+                kind = "d" if isinstance(node[name], dict) else "-"
+                size = 0 if kind == "d" else len(node[name].encode())
+                lines.append(f"{kind} {size:>6} {name}")
+            else:
+                lines.append(name)
+        return ("\n" if long_format else "  ").join(lines)
 
     def cmd_cd(self, args):
-        """Заглушка cd: печатает имя и аргументы."""
-        return f"cd: аргументы = {args}"
+        """cd [путь] - меняет текущий каталог."""
+        if len(args) > MAX_PATHS:
+            raise ShellError("cd: слишком много аргументов")
+        path = args[0] if args else "/"
+        parts, node = self.find("cd", path)
+        if not isinstance(node, dict):
+            raise ShellError(f"cd: {path}: не каталог")
+        self.cwd = parts
+        return ""
+
+    def cmd_tail(self, args):
+        """tail [-n N] файл - последние строки файла."""
+        count = TAIL_LINES
+        if args[:1] == ["-n"]:
+            if not args[1:]:
+                raise ShellError("tail: опция -n требует число")
+            count = parse_count(args[1])
+            args = args[2:]
+        if not args or args[1:]:
+            raise ShellError("tail: ожидается один файл")
+        _, node = self.find("tail", args[0])
+        if isinstance(node, dict):
+            raise ShellError(f"tail: {args[0]}: это каталог")
+        lines = node.splitlines()
+        start = max(len(lines) - count, MIN_COUNT)
+        return "\n".join(lines[start:])
+
+    def cmd_who(self, args):
+        """who - кто вошёл в систему (реальный пользователь ОС)."""
+        if args:
+            raise ShellError("who: лишние аргументы")
+        return f"{self.user}  console  {self.started:%Y-%m-%d %H:%M}"
 
     def cmd_vfs_tree(self, args):
         """vfs-tree - служебная команда: показывает дерево VFS."""
@@ -213,6 +289,17 @@ class Emulator:
             raise ShellError("exit: команда не принимает аргументов")
         self.running = False
         return ""
+
+
+def parse_count(text):
+    """Преобразует аргумент -n в неотрицательное число."""
+    try:
+        count = int(text)
+    except ValueError:
+        raise ShellError(f"tail: неверное число строк: {text}") from None
+    if count < MIN_COUNT:
+        raise ShellError(f"tail: неверное число строк: {text}")
+    return count
 
 
 class App:
