@@ -1,13 +1,19 @@
 """Эмулятор командной строки с графическим интерфейсом."""
+import argparse
 import getpass
 import os
 import re
 import shlex
 import socket
+import sys
+import xml.etree.ElementTree as ET
 import tkinter as tk
+from datetime import datetime
 from tkinter import scrolledtext
 
 ENV_PATTERN = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+DELAY_MS = 400
+NOT_SET = "<не задан>"
 
 
 class ShellError(Exception):
@@ -32,15 +38,66 @@ def parse_line(line):
     return [expand_vars(word) for word in words]
 
 
+class XmlLog:
+    """XML-журнал вызовов команд."""
+
+    def __init__(self, path):
+        """Создаёт лог-файл (и папку для него, если нужно)."""
+        self.path = path
+        self.root = ET.Element("log")
+        folder = os.path.dirname(path)
+        try:
+            if folder:
+                os.makedirs(folder, exist_ok=True)
+        except OSError as error:
+            raise ShellError(f"{path}: {error.strerror}") from error
+        self.save()
+
+    def add(self, command, args, error):
+        """Добавляет событие: время, команда, аргументы, ошибка."""
+        event = ET.SubElement(self.root, "event")
+        stamp = datetime.now().isoformat(timespec="seconds")
+        ET.SubElement(event, "time").text = stamp
+        ET.SubElement(event, "command").text = command
+        args_node = ET.SubElement(event, "args")
+        for arg in args:
+            ET.SubElement(args_node, "arg").text = arg
+        ET.SubElement(event, "error").text = error
+        self.save()
+
+    def save(self):
+        """Записывает журнал в файл."""
+        tree = ET.ElementTree(self.root)
+        ET.indent(tree)
+        try:
+            tree.write(self.path, encoding="utf-8", xml_declaration=True)
+        except OSError as error:
+            raise ShellError(f"{self.path}: {error.strerror}") from error
+
+
+def read_script(path):
+    """Читает стартовый скрипт без пустых строк и комментариев."""
+    try:
+        with open(path, encoding="utf-8-sig") as file:
+            lines = file.read().splitlines()
+    except OSError as error:
+        raise ShellError(f"{path}: {error.strerror}") from error
+    return [
+        line for line in lines
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
 class Emulator:
     """Ядро эмулятора: текущий каталог, команды, журнал."""
 
-    def __init__(self):
+    def __init__(self, log=None):
         """Запоминает пользователя и хост из реальной ОС."""
         self.user = getpass.getuser()
         self.host = socket.gethostname()
         self.cwd = []
         self.running = True
+        self.log = log
         self.commands = {
             "ls": self.cmd_ls,
             "cd": self.cmd_cd,
@@ -58,6 +115,7 @@ class Emulator:
 
     def execute(self, line):
         """Выполняет строку, возвращает (вывод, ошибка)."""
+        name, args = line.strip(), []
         try:
             words = parse_line(line)
             if not words:
@@ -67,8 +125,15 @@ class Emulator:
                 raise ShellError(f"{name}: команда не найдена")
             output = self.commands[name](args)
         except ShellError as error:
+            self.write_log(name, args, str(error))
             return "", str(error)
+        self.write_log(name, args, "")
         return output, ""
+
+    def write_log(self, name, args, error):
+        """Пишет событие в журнал, если он включён."""
+        if self.log:
+            self.log.add(name, args, error)
 
     def cmd_ls(self, args):
         """Заглушка ls: печатает имя и аргументы."""
@@ -89,9 +154,10 @@ class Emulator:
 class App:
     """Окно эмулятора: вывод сверху, строка ввода снизу."""
 
-    def __init__(self, emu):
+    def __init__(self, emu, banner="", script=None):
         """Создаёт окно и все его элементы."""
         self.emu = emu
+        self.script = list(script or [])
         self.root = tk.Tk()
         self.root.title(emu.title())
         self.output = scrolledtext.ScrolledText(
@@ -108,7 +174,9 @@ class App:
         self.entry.pack(side="left", fill="x", expand=True)
         self.entry.bind("<Return>", self.on_enter)
         self.entry.focus_set()
+        self.show(banner)
         self.label.config(text=emu.prompt())
+        self.root.after(DELAY_MS, self.next_script_line)
 
     def show(self, text, tag=None):
         """Добавляет текст в область вывода."""
@@ -137,11 +205,76 @@ class App:
         self.entry.delete(0, "end")
         self.run_line(line)
 
+    def next_script_line(self):
+        """Выполняет очередную строку стартового скрипта."""
+        if not self.script:
+            return
+        if self.run_line(self.script.pop(0)):
+            self.root.after(DELAY_MS, self.next_script_line)
+
+
+def show_step(emu, line):
+    """Текстовый режим: выполняет строку и печатает диалог."""
+    print(f"{emu.prompt()} {line}")
+    output, error = emu.execute(line)
+    if output:
+        print(output)
+    if error:
+        print(error)
+    return emu.running
+
+
+def run_console(emu, script):
+    """Текстовый режим: сначала скрипт, потом ввод с клавиатуры."""
+    for line in script:
+        if not show_step(emu, line):
+            return
+    for line in sys.stdin:
+        if not show_step(emu, line.rstrip("\n")):
+            return
+
+
+def parse_args():
+    """Разбирает параметры командной строки."""
+    parser = argparse.ArgumentParser(description="Эмулятор командной строки")
+    parser.add_argument("--vfs", help="путь к директории с VFS")
+    parser.add_argument("--log", help="путь к XML лог-файлу")
+    parser.add_argument("--script", help="путь к стартовому скрипту")
+    parser.add_argument(
+        "--headless", action="store_true", help="работа без окна"
+    )
+    return parser.parse_args()
+
+
+def describe(args):
+    """Отладочный вывод всех заданных параметров."""
+    lines = ["[debug] Параметры запуска:"]
+    for name in ("vfs", "log", "script", "headless"):
+        value = getattr(args, name)
+        if value is None:
+            value = NOT_SET
+        lines.append(f"[debug]   --{name} = {value}")
+    return "\n".join(lines)
+
 
 def main():
-    """Запускает окно эмулятора."""
-    App(Emulator()).root.mainloop()
+    """Запускает эмулятор, возвращает код завершения."""
+    args = parse_args()
+    banner = describe(args)
+    print(banner)
+    try:
+        log = XmlLog(args.log) if args.log else None
+        script = read_script(args.script) if args.script else []
+    except ShellError as error:
+        print(f"Ошибка запуска: {error}", file=sys.stderr)
+        return 1
+    emu = Emulator(log)
+    if args.headless:
+        run_console(emu, script)
+    else:
+        App(emu, banner, script).root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

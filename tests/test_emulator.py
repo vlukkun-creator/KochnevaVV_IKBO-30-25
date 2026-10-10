@@ -1,13 +1,16 @@
 """Тесты эмулятора."""
 import os
+import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
-from emulator import Emulator, ShellError, expand_vars, parse_line
+from emulator import Emulator, ShellError, XmlLog, expand_vars, parse_line
+from emulator import read_script
 
 
-def make():
+def make(log=None):
     """Создаёт эмулятор для теста."""
-    return Emulator()
+    return Emulator(log)
 
 
 def run(emu, line):
@@ -68,6 +71,36 @@ class ShellTest(unittest.TestCase):
         """ls и cd - заглушки."""
         self.assertEqual(run(make(), "ls -l"), "ls: аргументы = ['-l']")
         self.assertEqual(run(make(), "cd /x"), "cd: аргументы = ['/x']")
+
+
+class LogTest(unittest.TestCase):
+    """XML-журнал и стартовый скрипт."""
+
+    def test_log_events(self):
+        """В журнале есть команда, аргументы, ошибка и время."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "sub", "log.xml")
+            emu = make(XmlLog(path))
+            emu.execute("ls -l")
+            emu.execute("nope")
+            events = ET.parse(path).getroot().findall("event")
+        self.assertEqual(events[0].findtext("command"), "ls")
+        self.assertEqual(events[0].find("args/arg").text, "-l")
+        self.assertIn("не найдена", events[1].findtext("error"))
+        self.assertTrue(events[1].findtext("time"))
+
+    def test_script_skips_comments(self):
+        """Комментарии и пустые строки пропускаются."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "s.emu")
+            with open(path, "w", encoding="utf-8") as file:
+                file.write("# c\n\nls\n  # d\nexit\n")
+            self.assertEqual(read_script(path), ["ls", "exit"])
+
+    def test_missing_script(self):
+        """Нет скрипта - ошибка."""
+        with self.assertRaises(ShellError):
+            read_script("no_such_script.emu")
 
 
 if __name__ == "__main__":
