@@ -1,0 +1,36 @@
+# Этап 4: ls, cd, tail, who (стандартная VFS)
+
+# ls
+ls
+ls -l
+ls -l /home
+ls /home/user/notes.txt
+ls /nope
+ls -z
+ls /etc /tmp
+
+# cd
+cd /home/user
+cd projects
+cd ..
+cd ../..
+cd /home/user/notes.txt
+cd /nope
+cd a b
+cd
+
+# tail
+tail /home/user/notes.txt
+tail /var/log/syslog
+tail -n 3 /var/log/syslog
+tail -n 0 /var/log/syslog
+tail -n x /var/log/syslog
+tail -n
+tail /etc
+tail /nope
+tail
+
+# who
+who
+who extra
+exit
