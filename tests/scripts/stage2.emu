@@ -1,0 +1,8 @@
+# Стартовый скрипт этапа 2
+# строки с # не выполняются
+ls -l /tmp
+cd $HOME   # комментарий после команды
+
+unknown_cmd arg1
+exit extra_argument
+exit
