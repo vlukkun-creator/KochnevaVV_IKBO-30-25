@@ -6,7 +6,7 @@ import re
 import shlex
 import socket
 import sys
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as xml_tree
 import tkinter as tk
 from datetime import datetime
 from tkinter import scrolledtext
@@ -104,7 +104,7 @@ class XmlLog:
     def __init__(self, path):
         """Создаёт лог-файл (и папку для него, если нужно)."""
         self.path = path
-        self.root = ET.Element("log")
+        self.root = xml_tree.Element("log")
         folder = os.path.dirname(path)
         try:
             if folder:
@@ -115,20 +115,20 @@ class XmlLog:
 
     def add(self, command, args, error):
         """Добавляет событие: время, команда, аргументы, ошибка."""
-        event = ET.SubElement(self.root, "event")
+        event = xml_tree.SubElement(self.root, "event")
         stamp = datetime.now().isoformat(timespec="seconds")
-        ET.SubElement(event, "time").text = stamp
-        ET.SubElement(event, "command").text = command
-        args_node = ET.SubElement(event, "args")
+        xml_tree.SubElement(event, "time").text = stamp
+        xml_tree.SubElement(event, "command").text = command
+        args_node = xml_tree.SubElement(event, "args")
         for arg in args:
-            ET.SubElement(args_node, "arg").text = arg
-        ET.SubElement(event, "error").text = error
+            xml_tree.SubElement(args_node, "arg").text = arg
+        xml_tree.SubElement(event, "error").text = error
         self.save()
 
     def save(self):
         """Записывает журнал в файл."""
-        tree = ET.ElementTree(self.root)
-        ET.indent(tree)
+        tree = xml_tree.ElementTree(self.root)
+        xml_tree.indent(tree)
         try:
             tree.write(self.path, encoding="utf-8", xml_declaration=True)
         except OSError as error:
@@ -224,24 +224,13 @@ class Emulator:
 
     def cmd_ls(self, args):
         """ls [-l] [путь] - содержимое каталога."""
-        long_format = "-l" in args
-        paths = [arg for arg in args if arg != "-l"]
-        for path in paths:
-            if path.startswith("-"):
-                raise ShellError(f"ls: неверный ключ {path}")
-        if len(paths) > MAX_PATHS:
-            raise ShellError("ls: слишком много аргументов")
+        long_format, paths = split_ls_args(args)
         _, node = self.find("ls", paths[0] if paths else ".")
         if not isinstance(node, dict):
             return paths[0]
-        lines = []
-        for name in sorted(node):
-            if long_format:
-                kind = "d" if isinstance(node[name], dict) else "-"
-                size = 0 if kind == "d" else len(node[name].encode())
-                lines.append(f"{kind} {size:>6} {name}")
-            else:
-                lines.append(name)
+        lines = [
+            ls_line(name, node[name], long_format) for name in sorted(node)
+        ]
         return ("\n" if long_format else "  ").join(lines)
 
     def cmd_cd(self, args):
@@ -308,6 +297,26 @@ class Emulator:
             raise ShellError("exit: команда не принимает аргументов")
         self.running = False
         return ""
+
+
+def split_ls_args(args):
+    """Делит аргументы ls на ключ -l и список путей."""
+    paths = [arg for arg in args if arg != "-l"]
+    for path in paths:
+        if path.startswith("-"):
+            raise ShellError(f"ls: неверный ключ {path}")
+    if len(paths) > MAX_PATHS:
+        raise ShellError("ls: слишком много аргументов")
+    return "-l" in args, paths
+
+
+def ls_line(name, item, long_format):
+    """Строка вывода ls для одной записи каталога."""
+    if not long_format:
+        return name
+    kind = "d" if isinstance(item, dict) else "-"
+    size = 0 if kind == "d" else len(item.encode())
+    return f"{kind} {size:>6} {name}"
 
 
 def parse_count(text):

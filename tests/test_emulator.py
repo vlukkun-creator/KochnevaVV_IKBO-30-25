@@ -2,7 +2,7 @@
 import os
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as xml_tree
 
 from emulator import Emulator, ShellError, XmlLog, expand_vars, parse_line
 from emulator import read_script
@@ -79,7 +79,7 @@ class LogTest(unittest.TestCase):
             emu = make(XmlLog(path))
             emu.execute("ls -l")
             emu.execute("nope")
-            events = ET.parse(path).getroot().findall("event")
+            events = xml_tree.parse(path).getroot().findall("event")
         self.assertEqual(events[0].findtext("command"), "ls")
         self.assertEqual(events[0].find("args/arg").text, "-l")
         self.assertIn("не найдена", events[1].findtext("error"))
